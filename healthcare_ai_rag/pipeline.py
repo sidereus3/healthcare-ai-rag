@@ -2,6 +2,7 @@ import os
 
 import pandas as pd
 from dotenv import load_dotenv
+from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_openai import AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -47,10 +48,6 @@ def chunk_documents(documents: list):
 
 
 def initialize_embeddings():
-    """
-    Initializes the Azure OpenAI Embedding connection using configuration
-    pulled directly from the local environment file.
-    """
     print("Initializing Azure OpenAI Embeddings client...")
     embeddings = AzureOpenAIEmbeddings(
         azure_deployment=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME"),
@@ -61,17 +58,56 @@ def initialize_embeddings():
     return embeddings
 
 
+def build_or_load_vector_store(chunks, embeddings_client, db_path="faiss_index"):
+    """
+    Builds a local FAISS index from document chunks if it doesn't exist.
+    Otherwise, loads the index directly from disk to optimize performance.
+    """
+    # Allow dangerous deserialization since this is a local, trusted database index file
+    if os.path.exists(db_path):
+        print(f"Found existing local vector database at '{db_path}/'. Loading index...")
+        db = FAISS.load_local(
+            db_path, embeddings_client, allow_dangerous_deserialization=True
+        )
+    else:
+        print(
+            "No local database found. Generating embeddings and building FAISS index..."
+        )
+        # Slice down to the first 100 chunks for testing to save API costs/time initially
+        test_chunks = chunks[:100]
+        print(f"Embedding a subset of {len(test_chunks)} chunks for verification...")
+
+        db = FAISS.from_documents(test_chunks, embeddings_client)
+
+        # Save to local workspace directory
+        db.save_local(db_path)
+        print(f"Vector database built and saved locally to '{db_path}/'.")
+
+    return db
+
+
 if __name__ == "__main__":
     csv_file = "mtsamples.csv"
 
     if not os.path.exists(csv_file):
         print(f"Error: Could not find '{csv_file}' at the root level.")
     else:
+        # Preprocessing & setup
         raw_docs = load_and_preprocess_data(csv_file)
         chunked_docs = chunk_documents(raw_docs)
         embeddings_client = initialize_embeddings()
 
-        # Test a single embedding vector to confirm connectivity with Azure
-        print("Testing Azure connectivity by embedding a sample chunk...")
-        sample_vector = embeddings_client.embed_query(chunked_docs[0].page_content)
-        print(f"Success! Generated vector embedding of length: {len(sample_vector)}")
+        # vector DB compilation
+        vector_db = build_or_load_vector_store(chunked_docs, embeddings_client)
+
+        # Run a quick test query to confirm similarity search works
+        test_query = "What symptoms are associated with acute allergic reactions?"
+        print(f"\nExecuting semantic similarity search test for query: '{test_query}'")
+
+        # Retrieve the top 2 most mathematically similar text chunks
+        results = vector_db.similarity_search(test_query, k=2)
+
+        print("\n--- Top Similarity Search Result Match ---")
+        if results:
+            print(f"Source Speciality: {results[0].metadata['specialty']}")
+            print(f"Snippet:\n{results[0].page_content[:400]}...")

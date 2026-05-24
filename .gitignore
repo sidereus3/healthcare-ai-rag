@@ -3,3 +3,6 @@
 *.csv
 __pycache__/
 .poetry/
+
+# Local FAISS vector database storage
+faiss_index/

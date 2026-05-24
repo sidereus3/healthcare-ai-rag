@@ -1,0 +1,5 @@
+.venv/
+.env
+*.csv
+__pycache__/
+.poetry/

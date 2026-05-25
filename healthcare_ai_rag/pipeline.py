@@ -73,11 +73,9 @@ def build_or_load_vector_store(chunks, embeddings_client, db_path="faiss_index")
         print(
             "No local database found. Generating embeddings and building FAISS index..."
         )
-        # Slice down to the first 100 chunks for testing to save API costs/time initially
-        test_chunks = chunks[:100]
-        print(f"Embedding a subset of {len(test_chunks)} chunks for verification...")
 
-        db = FAISS.from_documents(test_chunks, embeddings_client)
+        print(f"Embedding all {len(chunks)} chunks into vector store...")
+        db = FAISS.from_documents(chunks, embeddings_client)
 
         # Save to local workspace directory
         db.save_local(db_path)
